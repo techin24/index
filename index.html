@@ -2589,11 +2589,15 @@ function showSaved(msg) {
 }
 
 // ── Save all form values to localStorage ────────────────
+// ── Firebase-safe key encoding (global scope) ────────────
+function fbKey(k){ return (k||'').replace(/[.#$\[\]]/g, c => ('%'+c.charCodeAt(0).toString(16).toUpperCase())); }
+function fbKeyDecode(k){ return (k||'').replace(/%([0-9A-F]{2})/g, (_,h)=>String.fromCharCode(parseInt(h,16))); }
+
 function saveDynamicState(state) {
   // ── mood-cells (background color) ────────────────────────
   state.moodCells = {};
   document.querySelectorAll('.mood-cell').forEach(el => {
-    const k = elKey(el);
+    const k = fbKey(elKey(el));
     if (!k) return;
     const bg = el.style.background || el.style.backgroundColor || '';
     if (bg) state.moodCells[k] = bg;
@@ -2601,19 +2605,19 @@ function saveDynamicState(state) {
   // ── hday / cday (toggled .on class) ──────────────────────
   state.toggledOn = [];
   document.querySelectorAll('.hday.on, .cday.on, .gps.on').forEach(el => {
-    const k = elKey(el);
+    const k = fbKey(elKey(el));
     if (k) state.toggledOn.push(k);
   });
   // ── ns-days (dataset.ns = good/bad) ──────────────────────
   state.nsDays = {};
   document.querySelectorAll('#ns-days .cday[data-ns]').forEach(el => {
-    const k = elKey(el);
+    const k = fbKey(elKey(el));
     if (k) state.nsDays[k] = el.dataset.ns;
   });
   // ── stars (.on class + text) ─────────────────────────────
   state.stars = {};
   document.querySelectorAll('.stars').forEach(container => {
-    const ck = elKey(container);
+    const ck = fbKey(elKey(container));
     if (!ck) return;
     const onCount = container.querySelectorAll('span.on').length;
     if (onCount > 0) state.stars[ck] = onCount;
@@ -2628,7 +2632,7 @@ function restoreDynamicState(state) {
   if (state.moodCells) {
     Object.entries(state.moodCells).forEach(([k, bg]) => {
       document.querySelectorAll('.mood-cell').forEach(el => {
-        if (elKey(el) === k) { el.style.background = bg; el.style.backgroundColor = bg; }
+        if (fbKey(elKey(el)) === k) { el.style.background = bg; el.style.backgroundColor = bg; }
       });
     });
   }
@@ -2636,13 +2640,13 @@ function restoreDynamicState(state) {
   if (state.toggledOn) {
     const keySet = new Set(state.toggledOn);
     document.querySelectorAll('.hday, .cday, .gps').forEach(el => {
-      if (keySet.has(elKey(el))) el.classList.add('on');
+      if (keySet.has(fbKey(elKey(el)))) el.classList.add('on');
     });
   }
   // ── ns-days ───────────────────────────────────────────────
   if (state.nsDays) {
     document.querySelectorAll('#ns-days .cday').forEach(el => {
-      const k = elKey(el);
+      const k = fbKey(elKey(el));
       if (!state.nsDays[k]) return;
       el.dataset.ns = state.nsDays[k];
       if (state.nsDays[k] === 'good') {
@@ -2657,7 +2661,7 @@ function restoreDynamicState(state) {
   if (state.stars) {
     Object.entries(state.stars).forEach(([ck, count]) => {
       document.querySelectorAll('.stars').forEach(container => {
-        if (elKey(container) !== ck) return;
+        if (fbKey(elKey(container)) !== ck) return;
         const spans = container.querySelectorAll('span');
         spans.forEach((s, j) => {
           s.classList.toggle('on', j < count);
@@ -2921,6 +2925,7 @@ const FB_CONFIG = {
 let _app, _db, _roomRef, _unsub, _roomId, _ignoreNext=false, _pushTimer, _lastHash;
 
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=Math.imul(31,h)+s.charCodeAt(i)|0;return h;}
+// fbKey defined globally above
 function uid(){return 'lp'+Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);}
 function setRoomInUrl(rid){const u=new URL(location.href);u.searchParams.set('room',rid);history.replaceState({},'',u.toString());}
 
@@ -2928,7 +2933,7 @@ function buildPayload(){
   let state={inputs:{},ts:Date.now(),room:_roomId};
   document.querySelectorAll('input:not([type=file]):not([type=button]):not([type=submit]),textarea,select').forEach(el=>{
     const k=elKey(el);if(!k)return;
-    state.inputs[k]=(el.type==='checkbox'||el.type==='radio')?el.checked:el.value;
+    state.inputs[fbKey(k)]=(el.type==='checkbox'||el.type==='radio')?el.checked:el.value;
   });
   state=saveDynamicState(state);
   const cal=localStorage.getItem('planner_cal');if(cal)state.cal=cal;
@@ -2939,8 +2944,8 @@ function applyRemote(state){
   if(!state||!state.inputs)return;
   _ignoreNext=true;
   document.querySelectorAll('input:not([type=file]):not([type=button]):not([type=submit]),textarea,select').forEach(el=>{
-    const k=elKey(el);if(!(k in state.inputs))return;
-    const v=state.inputs[k];
+    const k=elKey(el);const fk=fbKey(k);if(!(fk in state.inputs))return;
+    const v=state.inputs[fk];
     if(el.type==='checkbox'||el.type==='radio'){if(el.checked!==!!v)el.checked=!!v;}
     else{if(el.value!==String(v??'')){el.value=v??''}}
   });
@@ -3109,7 +3114,7 @@ window.joinRoom=async function(){
   const input=document.getElementById('sp-join-input');
   const newRid=(input?.value||'').trim();
   if(!newRid){alert('กรุณากรอก Room ID');return;}
-  if(!confirm(\`เข้าร่วม Room "${newRid}"?\nข้อมูลจะถูกแทนที่ด้วยข้อมูลจาก Room นั้น\`))return;
+  if(!confirm(`เข้าร่วม Room "${newRid}"?\nข้อมูลจะถูกแทนที่ด้วยข้อมูลจาก Room นั้น`))return;
   if(_unsub){off(_roomRef);_unsub=null;}
   document.removeEventListener('input',schedulePush);
   document.removeEventListener('change',schedulePush);
